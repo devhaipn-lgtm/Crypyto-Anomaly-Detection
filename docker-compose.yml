@@ -1,0 +1,92 @@
+services:
+  # 1. Zookeeper (Required for Kafka)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  # 2. Apache Kafka (Message Broker)
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "29092:29092"
+    depends_on:
+      - zookeeper
+
+  # 3. ClickHouse (Analytics Database)
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ./clickhouse_config/users.xml:/etc/clickhouse-server/users.d/users.xml
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  # 4. Grafana (Visualization)
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - clickhouse
+
+  # 5. Spark Processor
+  spark-processor:
+    image: apache/spark:3.5.1-python3
+    volumes:
+      - ./src:/app/src
+    working_dir: /app
+    user: root
+    command: >
+      /opt/spark/bin/spark-submit
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
+      --conf spark.sql.shuffle.partitions=2
+      --conf spark.driver.extraJavaOptions=-Divy.cache.dir=/tmp/.ivy2
+      /app/src/spark_processor_docker.py
+    depends_on:
+      - kafka
+      - clickhouse
+
+  # 6. Producer (Binance WebSocket to Kafka)
+  producer:
+    build:
+      context: .
+      dockerfile: Dockerfile.producer
+    depends_on:
+      - kafka
+    restart: unless-stopped
+
+  # 7. Alert Bot (Email notifications for anomalies)
+  alert-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.alertbot
+    environment:
+      - CLICKHOUSE_HOST=clickhouse
+      - CHECK_INTERVAL=5
+      # Configure these for email alerts:
+      - SMTP_SERVER=smtp.mailersend.net
+      - SMTP_PORT=2525
+      - SMTP_USER=MS_ljYdN5@test-zkq340ekdz2gd796.mlsender.net
+      - SENDER_EMAIL=CryptoAlert@test-zkq340ekdz2gd796.mlsender.net
+      - SENDER_PASSWORD=mssp.q9Xhddy.jpzkmgqe8o2g059v.9p7XQ91
+      - RECEIVER_EMAIL=Thai.NN252270M@sis.hust.edu.vn
+    depends_on:
+      - clickhouse
+    restart: unless-stopped

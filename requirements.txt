@@ -1,0 +1,6 @@
+kafka-python-ng
+websocket-client==1.6.1
+pyspark==3.5.0
+clickhouse-connect
+pandas
+numpy
