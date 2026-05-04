@@ -38,11 +38,17 @@ services:
 
   # 4. Grafana (Visualization)
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.4.0
+    platform: linux/amd64
     ports:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-clickhouse-datasource
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
     depends_on:
       - clickhouse
 

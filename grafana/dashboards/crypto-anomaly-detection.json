@@ -1,0 +1,651 @@
+{
+  "uid": "crypto-anomaly-main",
+  "title": "Crypto Anomaly Detection — Live Dashboard",
+  "description": "Real-time cryptocurrency anomaly detection with multi-pair monitoring",
+  "tags": ["crypto", "anomaly", "realtime"],
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "fiscalYearStartMonth": 0,
+  "liveNow": true,
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Total Trades (15m)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-crypto" },
+      "targets": [
+        {
+          "rawSql": "SELECT count() AS total FROM crypto.market_data WHERE event_time >= now() - INTERVAL 15 MINUTE",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#2ecc71", "value": null },
+              { "color": "#f39c12", "value": 10000 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 2,
+      "title": "Anomalies Detected",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-crypto" },
+      "targets": [
+        {
+          "rawSql": "SELECT count() AS anomalies FROM crypto.market_data WHERE is_anomaly = 1 AND event_time >= now() - INTERVAL 15 MINUTE",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#2ecc71", "value": null },
+              { "color": "#f1c40f", "value": 1 },
+              { "color": "#e74c3c", "value": 3 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Pipeline Latency",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-crypto" },
+      "targets": [
+        {
+          "rawSql": "SELECT round(avg(now() - event_time), 0) AS latency_sec FROM crypto.market_data WHERE event_time >= now() - INTERVAL 1 MINUTE",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#2ecc71", "value": null },
+              { "color": "#f1c40f", "value": 30 },
+              { "color": "#e74c3c", "value": 60 }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Active Pairs",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-crypto" },
+      "targets": [
+        {
+          "rawSql": "SELECT uniq(symbol) AS active_pairs FROM crypto.market_data WHERE event_time >= now() - INTERVAL 5 MINUTE",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#e74c3c", "value": null },
+              { "color": "#f1c40f", "value": 3 },
+              { "color": "#2ecc71", "value": 6 }
+            ]
+          },
+          "unit": "short",
+          "max": 6,
+          "displayName": " "
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Price — Multi-Pair (BTC, ETH, SOL)",
+      "type": "timeseries",
+      "gridPos": { "h": 10, "w": 16, "x": 0, "y": 4 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-crypto" },
+      "targets": [
+        {
+          "rawSql": "SELECT event_time AS time, price, symbol FROM crypto.market_data WHERE symbol IN ('BTCUSDT', 'ETHUSDT', 'SOLUSDT') AND event_time >= now() - INTERVAL 15 MINUTE ORDER BY time",
+          "refId": "Price",
+          "format": 0
+        },
+        {
+          "rawSql": "SELECT event_time AS time, price AS anomaly_price, symbol FROM crypto.market_data WHERE is_anomaly = 1 AND symbol IN ('BTCUSDT', 'ETHUSDT', 'SOLUSDT') AND event_time >= now() - INTERVAL 15 MINUTE ORDER BY time",
+          "refId": "Anomalies",
+          "format": 0
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Price (USDT)",
+            "drawStyle": "line",
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": true
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "BTCUSDT" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#f39c12", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "ETHUSDT" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#3498db", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "SOLUSDT" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#9b59b6", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "anomaly_price" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "#e74c3c", "mode": "fixed" } },
+              { "id": "custom.drawStyle", "value": "points" },
+              { "id": "custom.pointSize", "value": 10 },
+              { "id": "custom.showPoints", "value": "always" }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Anomaly Event Log",
+      "type": "table",
+      "gridPos": { "h": 10, "w": 8, "x": 16, "y": 4 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-crypto" },
+      "targets": [
+        {
+          "rawSql": "SELECT event_time AS Time, symbol AS Pair, round(price, 2) AS Price, round(volume, 2) AS Volume, is_alerted AS Alerted FROM crypto.market_data WHERE is_anomaly = 1 AND event_time >= now() - INTERVAL 1 HOUR ORDER BY event_time DESC LIMIT 20",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Pair" },
+            "properties": [
+              { "id": "custom.width", "value": 90 },
+              { "id": "color", "value": { "fixedColor": "#e74c3c", "mode": "fixed" } },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Price" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Volume" },
+            "properties": [
+              { "id": "unit", "value": "short" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Alerted" },
+            "properties": [
+              { "id": "custom.width", "value": 60 },
+              { "id": "mappings", "value": [
+                { "type": "value", "options": { "0": { "text": "No", "color": "#f1c40f" }, "1": { "text": "Yes", "color": "#2ecc71" } } }
+              ]}
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Time", "desc": true }],
+        "frameIndex": 0
+      }
+    },
+    {
+      "id": 7,
+      "title": "Volume — ETHUSDT (with 3σ threshold)",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 14 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-crypto" },
+      "targets": [
+        {
+          "rawSql": "SELECT event_time AS time, volume FROM crypto.market_data WHERE symbol = 'ETHUSDT' AND event_time >= now() - INTERVAL 15 MINUTE ORDER BY time",
+          "refId": "Volume",
+          "format": 0
+        },
+        {
+          "rawSql": "SELECT event_time AS time, volume AS anomaly_volume FROM crypto.market_data WHERE symbol = 'ETHUSDT' AND is_anomaly = 1 AND event_time >= now() - INTERVAL 15 MINUTE ORDER BY time",
+          "refId": "AnomalyVol",
+          "format": 0
+        },
+        {
+          "rawSql": "SELECT now() - INTERVAL 15 MINUTE AS time, avg(volume) + 3 * stddevPop(volume) AS threshold FROM crypto.market_data WHERE symbol = 'ETHUSDT' AND event_time >= now() - INTERVAL 30 MINUTE UNION ALL SELECT now() AS time, avg(volume) + 3 * stddevPop(volume) AS threshold FROM crypto.market_data WHERE symbol = 'ETHUSDT' AND event_time >= now() - INTERVAL 30 MINUTE",
+          "refId": "Threshold",
+          "format": 0
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "gradientMode": "none",
+            "lineWidth": 1,
+            "barAlignment": 0
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "volume" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "#2ecc71", "mode": "fixed" } },
+              { "id": "custom.fillOpacity", "value": 60 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "anomaly_volume" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "#e74c3c", "mode": "fixed" } },
+              { "id": "custom.drawStyle", "value": "bars" },
+              { "id": "custom.fillOpacity", "value": 80 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "threshold" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "#e74c3c", "mode": "fixed" } },
+              { "id": "custom.drawStyle", "value": "line" },
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 5] } },
+              { "id": "custom.lineWidth", "value": 2 },
+              { "id": "custom.fillOpacity", "value": 5 },
+              { "id": "displayName", "value": "3σ Threshold" }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Anomalies by Pair (24h)",
+      "type": "piechart",
+      "gridPos": { "h": 9, "w": 6, "x": 12, "y": 14 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-crypto" },
+      "targets": [
+        {
+          "rawSql": "SELECT symbol AS Pair, count() AS Anomalies FROM crypto.market_data WHERE is_anomaly = 1 AND event_time >= now() - INTERVAL 24 HOUR GROUP BY symbol ORDER BY Anomalies DESC",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "BTCUSDT" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#f39c12", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "ETHUSDT" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#3498db", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "SOLUSDT" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#9b59b6", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "DOGEUSDT" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#1abc9c", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "BNBUSDT" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#e67e22", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "XRPUSDT" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "#5dade2", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "options": {
+        "pieType": "donut",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": true },
+        "legend": { "displayMode": "list", "placement": "bottom", "values": ["value"] },
+        "tooltip": { "mode": "single" },
+        "displayLabels": ["percent"]
+      }
+    },
+    {
+      "id": 9,
+      "title": "System Health & Throughput",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 6, "x": 18, "y": 14 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-crypto" },
+      "targets": [
+        {
+          "rawSql": "SELECT toStartOfInterval(event_time, INTERVAL 10 SECOND) AS time, count() AS throughput FROM crypto.market_data WHERE event_time >= now() - INTERVAL 15 MINUTE GROUP BY time ORDER BY time",
+          "refId": "Throughput",
+          "format": 0
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#5dade2" },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "scheme",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "short",
+          "displayName": "Messages / 10s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "hidden" },
+        "tooltip": { "mode": "single" }
+      }
+    },
+    {
+      "id": 10,
+      "title": "BTCUSDT",
+      "type": "stat",
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 23 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-crypto" },
+      "targets": [
+        {
+          "rawSql": "SELECT round(price, 2) AS price FROM crypto.market_data WHERE symbol = 'BTCUSDT' ORDER BY event_time DESC LIMIT 1",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#f39c12", "value": null }]
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 11,
+      "title": "ETHUSDT",
+      "type": "stat",
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 23 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-crypto" },
+      "targets": [
+        {
+          "rawSql": "SELECT round(price, 2) AS price FROM crypto.market_data WHERE symbol = 'ETHUSDT' ORDER BY event_time DESC LIMIT 1",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#3498db", "value": null }]
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 12,
+      "title": "SOLUSDT",
+      "type": "stat",
+      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 23 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-crypto" },
+      "targets": [
+        {
+          "rawSql": "SELECT round(price, 2) AS price FROM crypto.market_data WHERE symbol = 'SOLUSDT' ORDER BY event_time DESC LIMIT 1",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#9b59b6", "value": null }]
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 13,
+      "title": "DOGEUSDT",
+      "type": "stat",
+      "gridPos": { "h": 5, "w": 4, "x": 12, "y": 23 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-crypto" },
+      "targets": [
+        {
+          "rawSql": "SELECT round(price, 4) AS price FROM crypto.market_data WHERE symbol = 'DOGEUSDT' ORDER BY event_time DESC LIMIT 1",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#1abc9c", "value": null }]
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 14,
+      "title": "BNBUSDT",
+      "type": "stat",
+      "gridPos": { "h": 5, "w": 4, "x": 16, "y": 23 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-crypto" },
+      "targets": [
+        {
+          "rawSql": "SELECT round(price, 2) AS price FROM crypto.market_data WHERE symbol = 'BNBUSDT' ORDER BY event_time DESC LIMIT 1",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#e67e22", "value": null }]
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 15,
+      "title": "XRPUSDT",
+      "type": "stat",
+      "gridPos": { "h": 5, "w": 4, "x": 20, "y": 23 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-crypto" },
+      "targets": [
+        {
+          "rawSql": "SELECT round(price, 4) AS price FROM crypto.market_data WHERE symbol = 'XRPUSDT' ORDER BY event_time DESC LIMIT 1",
+          "refId": "A",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#5dade2", "value": null }]
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      }
+    }
+  ],
+  "style": "dark",
+  "templating": { "list": [] },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-crypto" },
+        "enable": true,
+        "hide": false,
+        "iconColor": "#e74c3c",
+        "name": "Anomalies",
+        "target": {
+          "rawSql": "SELECT event_time AS time, concat('Anomaly: ', symbol, ' Vol=', toString(round(volume, 2))) AS text, symbol AS tags FROM crypto.market_data WHERE is_anomaly = 1 AND $__timeFilter(event_time)"
+        }
+      }
+    ]
+  }
+}
