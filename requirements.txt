@@ -4,3 +4,4 @@ pyspark==3.5.0
 clickhouse-connect
 pandas
 numpy
+requests

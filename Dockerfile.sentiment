@@ -1,0 +1,9 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir kafka-python-ng requests
+
+COPY src/sentiment_producer_docker.py /app/sentiment_producer.py
+
+CMD ["python", "-u", "sentiment_producer.py"]

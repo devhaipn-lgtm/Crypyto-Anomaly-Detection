@@ -10,14 +10,14 @@ from datetime import datetime
 # 1. Email Provider Settings (Example for Gmail)
 # Note: For Gmail, you must enable 2-Step Verification and generate an 'App Password'.
 # Go to Google Account -> Security -> 2-Step Verification -> App passwords.
-SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
-SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
-SMTP_USER = os.getenv('SMTP_USER', '')  # For services like SMTP2GO where username differs from email
-SENDER_EMAIL = os.getenv('SENDER_EMAIL', 'your_email@gmail.com')
-SENDER_PASSWORD = os.getenv('SENDER_PASSWORD', 'your_app_password')
+SMTP_SERVER = 'mail.smtp2go.com'
+SMTP_PORT = '2525'
+SMTP_USER = 'milient-dev'  # For services like SMTP2GO where username differs from email
+SENDER_EMAIL = 'thai.nguyen@milientsoftware.com'
+SENDER_PASSWORD = '7TA6F9BhcjUmbeMf'
 
 # 2. Receiver Settings
-RECEIVER_EMAIL = os.getenv('RECEIVER_EMAIL', 'receiver_email@example.com')
+RECEIVER_EMAIL = 'Thai.NN252270M@sis.hust.edu.vn'
 
 # ClickHouse Settings (use 'clickhouse' hostname inside Docker)
 CLICKHOUSE_HOST = os.getenv('CLICKHOUSE_HOST', 'localhost')
@@ -110,7 +110,8 @@ def main():
             
             # Query non-alerted anomalies only
             query = """
-                SELECT symbol, price, volume, event_time 
+                SELECT symbol, price, volume, event_time,
+                       volume_score, sentiment_avg, combined_score
                 FROM crypto.market_data
                 WHERE is_anomaly = 1 AND is_alerted = 0
                 ORDER BY event_time ASC
@@ -121,12 +122,22 @@ def main():
             rows = result.result_rows
                 
             for row in rows:
-                symbol, price, vol, event_time = row
+                symbol, price, vol, event_time, vol_score, sent_avg, combined = row
                 
                 # Check alert limit
                 if alert_count >= MAX_ALERTS:
                     print(f"⚠️  Max alerts ({MAX_ALERTS}) reached")
                     break
+                
+                # Determine trigger reason
+                reasons = []
+                if vol_score and vol_score >= 2.0:
+                    reasons.append(f"Volume spike ({vol_score:.1f}σ above mean)")
+                if sent_avg and sent_avg < -0.3:
+                    reasons.append(f"Bearish sentiment (avg: {sent_avg:+.2f})")
+                if not reasons:
+                    reasons.append("Combined signal threshold exceeded")
+                trigger_reason = ", ".join(reasons)
                 
                 # Format the message
                 subject = f"🚨 Anomaly Detected: {symbol}"
@@ -136,7 +147,13 @@ def main():
                     f"Price: ${price:,.2f}\n"
                     f"Volume: {vol:,.2f}\n"
                     f"Time: {event_time}\n\n"
-                    f"Check your dashboard for more details.\n\n"
+                    f"--- Anomaly Score Breakdown ---\n"
+                    f"Volume Score:    {vol_score:.2f} (Z-score, weight: 70%)\n"
+                    f"Sentiment Avg:   {sent_avg:+.2f} ([-1 bearish, +1 bullish])\n"
+                    f"Combined Score:  {combined:.2f} (threshold: 1.0)\n"
+                    f"Trigger Reason:  {trigger_reason}\n\n"
+                    f"Check your dashboard for more details.\n"
+                    f"http://localhost:3000\n\n"
                     f"Alert {alert_count + 1} of {MAX_ALERTS}"
                 )
                 
