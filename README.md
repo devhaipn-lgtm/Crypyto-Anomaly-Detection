@@ -56,53 +56,33 @@ This project implements a **real-time streaming pipeline** that:
 
 ### High-Level Architecture
 
-```
-┌─────────────────┐     ┌─────────────┐     ┌──────────────────┐     ┌─────────────┐
-│  Binance API    │────▶│   Producer  │────▶│   Apache Kafka   │────▶│    Spark    │
-│  (WebSocket)    │     │  (Python)   │     │  (Message Queue) │     │  Processor  │
-└─────────────────┘     └─────────────┘     └──────────────────┘     └──────┬──────┘
-                                                                            │
-                        ┌─────────────┐     ┌──────────────────┐            │
-                        │  Alert Bot  │◀────│   ClickHouse     │◀───────────┘
-                        │   (Email)   │     │   (Database)     │
-                        └─────────────┘     └────────┬─────────┘
-                                                     │
-                                            ┌────────▼─────────┐
-                                            │     Grafana      │
-                                            │   (Dashboard)    │
-                                            └──────────────────┘
+```mermaid
+flowchart LR
+    A["Binance API\n(WebSocket)"] --> B["Trade Producer\n(Python)"]
+    A2["CryptoNews API\n(cryptonews-api.com)"] --> B2["Sentiment Producer\n(Python)"]
+    B --> C["Apache Kafka\n(Message Queue)"]
+    B2 --> C
+    C --> D["Spark\nProcessor"]
+    D --> E["ClickHouse\n(Database)"]
+    E --> F["Grafana\n(Dashboard)"]
+    E --> G["Alert Bot\n(Email)"]
 ```
 
 ### Data Flow
 
-```
-1. Binance WebSocket API
-   └── Streams: btcusdt@trade, ethusdt@trade, solusdt@trade, ...
-   
-2. Producer (producer_docker.py)
-   └── Extracts: timestamp, symbol, price, volume
-   └── Sends to Kafka topic: crypto-realtime
-   
-3. Kafka (Message Broker)
-   └── Topic: crypto-realtime
-   └── Partitions: 1, Replication: 1
-   
-4. Spark Processor (spark_processor_docker.py)
-   └── Window: 1 minute, Slide: 30 seconds
-   └── Calculates: avg_price, avg_volume, stddev_volume
-   └── Anomaly: volume > mean + 3*stddev
-   
-5. ClickHouse (Analytics Database)
-   └── Database: crypto
-   └── Table: market_data
-   
-6. Grafana (Visualization)
-   └── Real-time price charts
-   └── Anomaly markers
-   
-7. Alert Bot (alert_bot.py)
-   └── Polls ClickHouse for new anomalies
-   └── Sends email via SMTP
+```mermaid
+flowchart TD
+    A["1a. Binance WebSocket API"] -->|"Streams: btcusdt@trade,\nethusdt@trade, solusdt@trade, ..."| B
+    B["2a. Trade Producer\n(producer_docker.py)"] -->|"Extracts: timestamp, symbol,\nprice, volume"| C
+    A2["1b. CryptoNews API\n(cryptonews-api.com)"] -->|"Polls every 800s\nper currency"| B2
+    B2["2b. Sentiment Producer\n(sentiment_producer_docker.py)"] -->|"Extracts: title, sentiment,\nsource, tickers"| C2
+    C["3a. Kafka\nTopic: crypto-realtime"] --> D
+    C2["3b. Kafka\nTopic: crypto-sentiment"] --> D
+    D["4. Spark Processor\nWindow: 1 min, Slide: 30s\nCombined Score = vol*0.7 + sent*0.3\nAnomaly if score > 1.0"] --> E
+    E["5. ClickHouse\nDB: crypto\nTables: market_data,\nraw_trades, sentiment_data"] --> F
+    E --> G
+    F["6. Grafana\nReal-time price charts\nAnomaly markers\nSentiment feed"]
+    G["7. Alert Bot\nPolls ClickHouse for anomalies\nSends email via SMTP"]
 ```
 
 ---
@@ -117,6 +97,7 @@ This project implements a **real-time streaming pipeline** that:
 | **Grafana** | `grafana/grafana:latest` | Metrics visualization | 3000 |
 | **Spark** | `apache/spark:3.5.1-python3` | Stream processing engine | - |
 | **Producer** | Custom Python | Binance WebSocket → Kafka | - |
+| **Sentiment Producer** | Custom Python | CryptoNews API → Kafka | - |
 | **Alert Bot** | Custom Python | Anomaly email notifications | - |
 
 ### Trading Pairs Monitored
@@ -163,39 +144,55 @@ git clone <repository-url>
 cd crypto-bigdata-project
 ```
 
-### 2. Start All Services
+### 2. Set CryptoNews API Token (Optional)
 
 ```bash
-docker-compose up -d
+# Without this, sentiment producer uses mock data
+export CRYPTONEWS_API_TOKEN=your_token_here
 ```
 
-### 3. Wait for Services to Initialize
+### 3. Start All Services
+
+```bash
+docker compose up -d --build
+```
+
+### 4. Wait for Services to Initialize
 
 ```bash
 # Check all services are running
-docker-compose ps
+docker compose ps
 ```
 
-### 4. Initialize ClickHouse Schema
+### 5. Initialize ClickHouse Schema
 
 ```bash
+# Linux / macOS
 docker exec -i crypto-bigdata-project-clickhouse-1 clickhouse-client < src/clickhouse_init.sql
+
+# Windows PowerShell (< not supported)
+Get-Content src/clickhouse_init.sql | docker exec -i crypto-bigdata-project-clickhouse-1 clickhouse-client --multiquery
 ```
 
-### 5. Verify Data Flow
+### 6. Verify Data Flow
 
 ```bash
-# Check producer logs
-docker-compose logs -f producer
+# Check trade producer logs
+docker compose logs --tail=10 producer
+
+# Check sentiment producer logs
+docker compose logs --tail=10 sentiment-producer
 
 # Check Spark processor logs
-docker-compose logs -f spark-processor
+docker compose logs --tail=20 spark-processor
 
 # Query ClickHouse for data
 docker exec crypto-bigdata-project-clickhouse-1 clickhouse-client --query "SELECT count() FROM crypto.market_data"
+docker exec crypto-bigdata-project-clickhouse-1 clickhouse-client --query "SELECT count() FROM crypto.raw_trades"
+docker exec crypto-bigdata-project-clickhouse-1 clickhouse-client --query "SELECT count() FROM crypto.sentiment_data"
 ```
 
-### 6. Access Grafana
+### 7. Access Grafana
 
 - **URL**: http://localhost:3000
 - **Username**: `admin`
@@ -216,6 +213,8 @@ docker exec crypto-bigdata-project-clickhouse-1 clickhouse-client --query "SELEC
 | `SENDER_EMAIL` | Email sender address | - |
 | `SENDER_PASSWORD` | SMTP password/API key | - |
 | `RECEIVER_EMAIL` | Alert recipient email | - |
+| `CRYPTONEWS_API_TOKEN` | CryptoNews API token (cryptonews-api.com) | *(empty, uses mock data)* |
+| `SENTIMENT_POLL_INTERVAL` | Sentiment polling interval (seconds) | `800` |
 
 ### Email Alerts Configuration
 
@@ -265,71 +264,70 @@ TRADING_PAIRS = ['btcusdt', 'ethusdt', 'solusdt', 'dogeusdt', 'bnbusdt', 'xrpusd
    - **Database**: `crypto`
 4. Click **Save & Test**
 
-### 2. Create Price Chart Panel
+### 2. Create Price Chart Panel (Tick-by-Tick)
 
-**Query for price data:**
+**Query for real-time price from raw trades:**
 
 ```sql
-SELECT 
-    event_time as time, 
-    price 
-FROM crypto.market_data 
-WHERE symbol = 'ETHUSDT' 
+SELECT event_time AS time, symbol, price
+FROM crypto.raw_trades
+WHERE $__timeFilter(event_time)
 ORDER BY time
 ```
 
-### 3. Create Anomaly Markers Panel
+### 3. Create OHLC Candlestick Panel
+
+**Query for 1-minute candles:**
+
+```sql
+SELECT
+    toStartOfMinute(event_time) AS time, symbol,
+    argMin(price, event_time) AS open,
+    max(price) AS high, min(price) AS low,
+    argMax(price, event_time) AS close,
+    sum(volume) AS total_volume
+FROM crypto.raw_trades
+WHERE $__timeFilter(event_time) AND symbol = 'BTCUSDT'
+GROUP BY time, symbol
+ORDER BY time
+```
+
+### 4. Create Anomaly Markers Panel
 
 **Query for anomaly points:**
 
 ```sql
-SELECT 
-    event_time as time, 
-    price 
-FROM crypto.market_data 
-WHERE symbol = 'ETHUSDT' AND is_anomaly = 1 
-ORDER BY time
+SELECT event_time AS time, symbol, price,
+       volume_score, sentiment_avg, combined_score
+FROM crypto.market_data
+WHERE is_anomaly = 1 AND $__timeFilter(event_time)
+ORDER BY time DESC
 ```
 
-### 4. Dashboard Settings
+### 5. Dashboard Settings
 
-- **Time Range**: Last 15 minutes
+- **Time Range**: Last 30 minutes
 - **Refresh**: 5 seconds
 - **Timezone**: Browser or Asia/Bangkok
 
-### Sample Dashboard JSON
-
-Import this JSON to create a basic dashboard:
-
-```json
-{
-  "title": "Crypto Anomaly Detection",
-  "panels": [
-    {
-      "title": "ETH/USDT Price",
-      "type": "timeseries",
-      "datasource": "ClickHouse",
-      "targets": [
-        {
-          "rawSql": "SELECT event_time as time, price FROM crypto.market_data WHERE symbol = 'ETHUSDT' ORDER BY time"
-        }
-      ]
-    }
-  ]
-}
-```
+> For the full 7-panel setup with all queries, see [`GRAFANA_SETUP.md`](GRAFANA_SETUP.md).
 
 ---
 
 ## Anomaly Detection
 
-### Algorithm: 3-Sigma Rule
+### Algorithm: Combined Scoring (Volume Z-Score + Sentiment)
 
-The Spark processor uses statistical anomaly detection based on the **3-sigma (standard deviation) rule**:
+The Spark processor uses a **multi-signal anomaly detection model** that combines volume statistics with news sentiment:
 
 ```
-Anomaly Condition: volume > mean_volume + (3 × stddev_volume)
+combined_score = volume_score × 0.7 + sentiment_anomaly_score × 0.3
+
+Anomaly Condition: combined_score > 1.0
 ```
+
+- **Volume Score** — Z-score comparing current window's avg volume against the historical baseline (last 30 min from ClickHouse)
+- **Sentiment Score** — Bearish news amplifies anomaly signal; bullish/neutral has no effect
 
 ### Processing Parameters
 
@@ -337,32 +335,39 @@ Anomaly Condition: volume > mean_volume + (3 × stddev_volume)
 |-----------|-------|-------------|
 | **Window Size** | 1 minute | Time window for aggregation |
 | **Slide Interval** | 30 seconds | How often windows are evaluated |
-| **Watermark** | 10 seconds | Late data tolerance |
-| **Threshold** | 3σ | Standard deviations above mean |
+| **Watermark** | 1 minute | Late data tolerance |
+| **Volume Weight** | 0.7 | Volume contribution to combined score |
+| **Sentiment Weight** | 0.3 | Sentiment contribution to combined score |
+| **Threshold** | 1.0 | Combined score above this = anomaly |
+| **Sentiment Lookback** | 60 minutes | Window for averaging sentiment data |
+| **Volume Lookback** | 30 minutes | Window for historical volume baseline |
 
 ### Anomaly Detection Flow
 
-```
-1. Receive trade data from Kafka
-2. Parse JSON: {timestamp, symbol, price, volume}
-3. Apply watermark for late data handling
-4. Group by symbol with sliding window (1min window, 30s slide)
-5. Calculate aggregations:
-   - avg_price = average(price)
-   - avg_volume = average(volume)
-   - stddev_volume = stddev(volume)
-   - current_volume = last(volume)
-6. Apply anomaly rule:
-   - threshold = avg_volume + (3 × stddev_volume)
-   - is_anomaly = 1 if current_volume > threshold else 0
-7. Write to ClickHouse
+```mermaid
+flowchart TD
+    A["1. Receive trade + sentiment data from Kafka"] --> B["2. Parse JSON streams"]
+    B --> C["3. Apply watermark for late data handling"]
+    C --> D["4. Group by symbol\nSliding window: 1min window, 30s slide"]
+    D --> E["5. Calculate aggregations\navg_price, avg_volume"]
+    E --> F["6. Fetch historical volume baseline\nfrom ClickHouse (last 30 min)"]
+    F --> G["7. Compute volume_score\n(Z-score vs historical baseline)"]
+    G --> H["8. Fetch sentiment_avg from ClickHouse\n(last 60 min)"]
+    H --> I["9. Compute sentiment_anomaly_score\n(bearish only: |sent| × 3.33)"]
+    I --> J["10. combined = vol×0.7 + sent×0.3"]
+    J --> K{"combined > 1.0?"}
+    K -->|Yes| L["is_anomaly = 1"]
+    K -->|No| M["is_anomaly = 0"]
+    L --> N["11. Write to ClickHouse"]
+    M --> N
 ```
 
-### Why 3-Sigma?
+### Why This Approach?
 
-- In a normal distribution, 99.7% of data falls within 3 standard deviations
-- Values beyond 3σ are statistically rare (0.3% probability)
-- Effective for detecting sudden volume spikes in trading
+- **Historical baseline comparison:** Volume score compares the current window's avg volume against the mean/stddev from the last 30 minutes of stored data in ClickHouse — detecting windows that are genuinely unusual relative to recent history
+- **Volume Z-Score (3-sigma):** 99.7% of data falls within 3 standard deviations — values beyond 3σ are statistically rare
+- **Sentiment amplification:** Bearish news during a volume spike confirms a potential crash; pure volume spikes with bullish news may be healthy growth
+- **Combined threshold at 1.0** means either a strong volume spike alone OR moderate volume + negative news can trigger an alert
 
 ---
 
@@ -412,42 +417,42 @@ python src/alert_bot.py --test
 
 ```bash
 # Start all services
-docker-compose up -d
+docker compose up -d
 
 # Start specific service
-docker-compose up -d producer
+docker compose up -d producer
 
 # Stop all services
-docker-compose down
+docker compose down
 
 # Stop and remove volumes
-docker-compose down -v
+docker compose down -v
 
 # Restart a service
-docker-compose restart alert-bot
+docker compose restart alert-bot
 
 # Rebuild and restart
-docker-compose up -d --build alert-bot
+docker compose up -d --build alert-bot
 ```
 
 ### View Logs
 
 ```bash
 # All services
-docker-compose logs -f
+docker compose logs -f
 
 # Specific service
-docker-compose logs -f spark-processor
+docker compose logs -f spark-processor
 
 # Last N lines
-docker-compose logs --tail=50 alert-bot
+docker compose logs --tail=50 alert-bot
 ```
 
 ### Check Status
 
 ```bash
 # Service status
-docker-compose ps
+docker compose ps
 
 # Resource usage
 docker stats
@@ -457,18 +462,86 @@ docker stats
 
 ## Testing
 
-### Insert Mock Anomaly
+### Simulate Anomaly Scenarios
+
+The mock anomaly generator supports all combined scoring scenarios. Each scenario inserts both market data and sentiment data into ClickHouse.
 
 ```bash
-# Usage: python src/mock_anomaly.py [SYMBOL] [PRICE] [VOLUME]
-python src/mock_anomaly.py ETHUSDT 3110.00 999999.99
-python src/mock_anomaly.py BTCUSDT 95000.00 500000.00
+# Show all available scenarios and usage
+python src/mock_anomaly.py
 ```
+
+#### Run All Scenarios at Once
+
+```bash
+# Inserts 6 scenarios: 4 anomalies + 2 normal records
+python src/mock_anomaly.py all
+```
+
+#### Individual Scenarios
+
+```bash
+# Scenario 1: Normal trading, neutral news → NORMAL (no alert)
+python src/mock_anomaly.py normal
+
+# Scenario 2: Volume spike (3σ), neutral news → ANOMALY (triggers alert)
+python src/mock_anomaly.py volume_spike
+
+# Scenario 3: Volume spike (3σ), bullish news → ANOMALY (triggers alert)
+python src/mock_anomaly.py volume_bullish
+
+# Scenario 4: Moderate volume (2σ) + bearish news → ANOMALY (combined triggers)
+python src/mock_anomaly.py combined
+
+# Scenario 5: Normal volume + very bearish news → ANOMALY (sentiment-driven)
+python src/mock_anomaly.py sentiment_only
+
+# Scenario 6: Slightly elevated + mildly bearish → NORMAL (boundary, no alert)
+python src/mock_anomaly.py borderline
+```
+
+#### Custom Scenario
+
+```bash
+# Usage: python src/mock_anomaly.py custom <SYMBOL> <PRICE> <VOLUME> <VOL_SCORE> <SENT_AVG> <COMBINED>
+python src/mock_anomaly.py custom BTCUSDT 95000 500000 3.5 -0.8 2.95
+python src/mock_anomaly.py custom ETHUSDT 2900 300000 2.0 -0.6 2.00
+python src/mock_anomaly.py custom DOGEUSDT 0.15 200 1.0 -0.3 1.00
+```
+
+#### Scenario Reference Table
+
+| Scenario | vol_score | sent_avg | combined | Result |
+|---|---|---|---|---|
+| `normal` | 0.5 | +0.1 | 0.35 | NORMAL |
+| `volume_spike` | 3.0 | 0.0 | 2.10 | **ANOMALY** |
+| `volume_bullish` | 3.0 | +0.7 | 2.10 | **ANOMALY** |
+| `combined` | 2.0 | -0.6 | 2.00 | **ANOMALY** |
+| `sentiment_only` | 0.5 | -1.0 | 1.35 | **ANOMALY** |
+| `borderline` | 1.0 | -0.3 | 1.00 | NORMAL |
 
 ### Test Email Alert
 
 ```bash
 docker exec crypto-bigdata-project-alert-bot-1 python /app/src/alert_bot.py --test
+```
+
+### Verify Anomalies Were Inserted
+
+```bash
+# View all anomalies with scores
+docker exec crypto-bigdata-project-clickhouse-1 clickhouse-client \
+  --query "SELECT event_time, symbol, price, volume_score, sentiment_avg, combined_score, is_anomaly, is_alerted FROM crypto.market_data WHERE is_anomaly = 1 ORDER BY event_time DESC"
+
+# View sentiment data
+docker exec crypto-bigdata-project-clickhouse-1 clickhouse-client \
+  --query "SELECT event_time, symbol, sentiment_score, sentiment_label, title FROM crypto.sentiment_data ORDER BY event_time DESC LIMIT 10"
+
+# Reset: delete all mock data to re-run scenarios
+docker exec crypto-bigdata-project-clickhouse-1 clickhouse-client \
+  --query "ALTER TABLE crypto.market_data DELETE WHERE volume_score > 0 OR sentiment_avg != 0"
+docker exec crypto-bigdata-project-clickhouse-1 clickhouse-client \
+  --query "ALTER TABLE crypto.sentiment_data DELETE WHERE source = 'cryptonews_mock'"
 ```
 
 ### ClickHouse Queries
@@ -477,8 +550,14 @@ docker exec crypto-bigdata-project-alert-bot-1 python /app/src/alert_bot.py --te
 # Count all records
 docker exec crypto-bigdata-project-clickhouse-1 clickhouse-client \
   --query "SELECT count() FROM crypto.market_data"
+docker exec crypto-bigdata-project-clickhouse-1 clickhouse-client \
+  --query "SELECT count() FROM crypto.raw_trades"
 
-# View recent data
+# View recent prices (tick-by-tick)
+docker exec crypto-bigdata-project-clickhouse-1 clickhouse-client \
+  --query "SELECT event_time, symbol, price FROM crypto.raw_trades ORDER BY event_time DESC LIMIT 10"
+
+# View recent aggregated data
 docker exec crypto-bigdata-project-clickhouse-1 clickhouse-client \
   --query "SELECT * FROM crypto.market_data ORDER BY event_time DESC LIMIT 10"
 
@@ -520,27 +599,75 @@ docker exec crypto-bigdata-project-kafka-1 kafka-console-consumer \
 CREATE DATABASE IF NOT EXISTS crypto;
 
 CREATE TABLE IF NOT EXISTS crypto.market_data (
-    event_time DateTime,      -- Timestamp of the trade
-    symbol String,            -- Trading pair (e.g., BTCUSDT)
-    price Float64,            -- Trade price in USDT
-    volume Float64,           -- Trade volume
-    is_anomaly UInt8,         -- 1 = anomaly, 0 = normal
-    is_alerted UInt8 DEFAULT 0 -- 1 = alert sent, 0 = not alerted
+    event_time DateTime,
+    symbol String,
+    price Float64,
+    volume Float64,
+    is_anomaly UInt8,
+    is_alerted UInt8 DEFAULT 0,
+    volume_score Float64 DEFAULT 0,
+    sentiment_avg Float64 DEFAULT 0,
+    combined_score Float64 DEFAULT 0
+) ENGINE = ReplacingMergeTree()
+PARTITION BY toYYYYMM(event_time)
+ORDER BY (symbol, event_time);
+```
+
+### Table: `crypto.raw_trades`
+
+```sql
+CREATE TABLE IF NOT EXISTS crypto.raw_trades (
+    event_time DateTime64(3),
+    symbol String,
+    price Float64,
+    volume Float64
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(event_time)
 ORDER BY (symbol, event_time);
 ```
 
-### Column Descriptions
+| Column | Type | Description |
+|--------|------|-------------|
+| `event_time` | DateTime64(3) | Trade timestamp with millisecond precision |
+| `symbol` | String | Trading pair (e.g., BTCUSDT) |
+| `price` | Float64 | Exact trade price in USDT |
+| `volume` | Float64 | Trade quantity |
+
+### Table: `crypto.sentiment_data`
+
+```sql
+CREATE TABLE IF NOT EXISTS crypto.sentiment_data (
+    event_time DateTime,
+    symbol String,
+    source String,
+    post_id String,
+    title String,
+    kind String,
+    sentiment_score Float64,
+    sentiment_label String,
+    votes_positive UInt32,
+    votes_negative UInt32,
+    votes_important UInt32,
+    url String,
+    published_at String
+) ENGINE = ReplacingMergeTree()
+PARTITION BY toYYYYMM(event_time)
+ORDER BY (symbol, event_time, post_id);
+```
+
+### Column Descriptions — `market_data`
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `event_time` | DateTime | UTC timestamp of the aggregated window |
 | `symbol` | String | Trading pair symbol (e.g., BTCUSDT) |
 | `price` | Float64 | Average price during the window |
-| `volume` | Float64 | Current volume (last value in window) |
-| `is_anomaly` | UInt8 | 1 if volume exceeded threshold, else 0 |
+| `volume` | Float64 | Average volume during the window |
+| `is_anomaly` | UInt8 | 1 if combined score > 1.0, else 0 |
 | `is_alerted` | UInt8 | 1 if email alert was sent, else 0 |
+| `volume_score` | Float64 | Volume Z-score vs historical baseline (0 = normal, 3+ = extreme) |
+| `sentiment_avg` | Float64 | Average sentiment in lookback window [-1, 1] (last 60 min) |
+| `combined_score` | Float64 | Final weighted anomaly score |
 
 ---
 
@@ -548,24 +675,31 @@ ORDER BY (symbol, event_time);
 
 ```
 crypto-bigdata-project/
-├── README.md                    # This file
-├── docker-compose.yml           # Docker services configuration
-├── Dockerfile.producer          # Producer container build
-├── Dockerfile.alertbot          # Alert bot container build
-├── requirements.txt             # Python dependencies
+├── README.md                        # This file
+├── BUSINESS_LOGIC.md                # Business logic documentation
+├── TECHNICAL_SPEC.md                # Technical specification
+├── CLICKHOUSE_DATABASE.md           # ClickHouse database documentation
+├── GRAFANA_SETUP.md                 # Grafana dashboard setup guide
+├── docker-compose.yml               # Docker services configuration
+├── Dockerfile.producer              # Producer container build
+├── Dockerfile.alertbot              # Alert bot container build
+├── Dockerfile.sentiment             # Sentiment producer container build
+├── requirements.txt                 # Python dependencies
 │
 ├── clickhouse_config/
-│   └── users.xml                # ClickHouse user configuration
+│   └── users.xml                    # ClickHouse user configuration
 │
 └── src/
-    ├── producer.py              # Local Binance WebSocket producer
-    ├── producer_docker.py       # Docker-compatible producer
-    ├── producer_docker.py
-    ├── spark_processor.py
-    ├── spark_processor_docker.py
-    ├── alert_bot.py
-    ├── mock_anomaly.py
-    └── clickhouse_init.sql
+    ├── producer.py                  # Local Binance WebSocket producer
+    ├── producer_docker.py           # Docker-compatible producer
+    ├── sentiment_producer.py        # Local sentiment producer (cryptonews-api.com)
+    ├── sentiment_producer_docker.py # Docker-compatible sentiment producer
+    ├── spark_processor.py           # Local Spark processor
+    ├── spark_processor_docker.py    # Docker-compatible Spark processor
+    ├── spark_processor_sentiment_docker.py # Docker Spark with combined scoring
+    ├── alert_bot.py                 # Anomaly email alert bot
+    ├── mock_anomaly.py              # Mock anomaly scenario generator
+    └── clickhouse_init.sql          # ClickHouse schema initialization
 ```
 
 ## Troubleshooting
@@ -576,7 +710,7 @@ crypto-bigdata-project/
 
 **Error**: `NativeIO$Windows.access0` error when running Spark locally
 
-**Solution**: Run Spark inside Docker instead of locally. The `spark-processor` service in docker-compose handles this automatically.
+**Solution**: Run Spark inside Docker instead of locally. The `spark-processor` service in Docker Compose handles this automatically.
 
 #### 2. Email Rate Limiting
 
@@ -602,9 +736,9 @@ docker exec crypto-bigdata-project-clickhouse-1 clickhouse-client \
 **Error**: `Connection refused` when producer tries to connect
 
 **Solution**: 
-- Ensure Kafka is running: `docker-compose ps kafka`
+- Ensure Kafka is running: `docker compose ps kafka`
 - Wait for Kafka to fully start (30-60 seconds)
-- Check Kafka logs: `docker-compose logs kafka`
+- Check Kafka logs: `docker compose logs kafka`
 
 #### 5. ClickHouse Insert Error (400 Bad Request)
 
@@ -626,8 +760,8 @@ DESCRIBE crypto.market_data
 #### 7. No Data in Grafana
 
 **Checklist**:
-1. Check producer is running: `docker-compose logs producer`
-2. Check Spark processor: `docker-compose logs spark-processor`
+1. Check producer is running: `docker compose logs producer`
+2. Check Spark processor: `docker compose logs spark-processor`
 3. Query ClickHouse directly to verify data exists
 4. Check Grafana time range (set to "Last 15 minutes")
 
@@ -635,19 +769,19 @@ DESCRIBE crypto.market_data
 
 **Solution**: 
 - Delete existing anomalies: `ALTER TABLE crypto.market_data DELETE WHERE is_anomaly = 1`
-- Rebuild alert-bot: `docker-compose up -d --build alert-bot`
+- Rebuild alert-bot: `docker compose up -d --build alert-bot`
 
 ### Useful Debug Commands
 
 ```bash
 # Check all container status
-docker-compose ps
+docker compose ps
 
 # View all logs
-docker-compose logs -f
+docker compose logs -f
 
 # Restart everything
-docker-compose down && docker-compose up -d
+docker compose down && docker compose up -d
 
 # Check resource usage
 docker stats
@@ -666,6 +800,7 @@ docker exec crypto-bigdata-project-kafka-1 kafka-topics --list --bootstrap-serve
 | Category | Technology | Version |
 |----------|------------|---------|
 | **Data Source** | Binance WebSocket API | - |
+| **Sentiment Source** | CryptoNews API (cryptonews-api.com) | Premium |
 | **Message Broker** | Apache Kafka | 7.5.0 |
 | **Stream Processing** | Apache Spark | 3.5.1 |
 | **Database** | ClickHouse | Latest |
@@ -681,6 +816,9 @@ kafka-python-ng
 websocket-client
 clickhouse-connect
 pyspark
+requests
+pandas
+numpy
 ```
 
 ---

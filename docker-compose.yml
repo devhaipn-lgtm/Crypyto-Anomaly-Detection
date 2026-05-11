@@ -63,7 +63,7 @@ services:
       --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
       --conf spark.sql.shuffle.partitions=2
       --conf spark.driver.extraJavaOptions=-Divy.cache.dir=/tmp/.ivy2
-      /app/src/spark_processor_docker.py
+      /app/src/spark_processor_sentiment_docker.py
     depends_on:
       - kafka
       - clickhouse
@@ -94,4 +94,17 @@ services:
       - RECEIVER_EMAIL=Thai.NN252270M@sis.hust.edu.vn
     depends_on:
       - clickhouse
+    restart: unless-stopped
+
+  # 8. Sentiment Producer (CryptoNews API to Kafka)
+  sentiment-producer:
+    build:
+      context: .
+      dockerfile: Dockerfile.sentiment
+    environment:
+      - CRYPTONEWS_API_TOKEN=bbxncv56th6jaucotx0enougb5pivrmiaadxkiwi 
+      - SENTIMENT_POLL_INTERVAL=800
+      - CRYPTONEWS_ITEMS=3
+    depends_on:
+      - kafka
     restart: unless-stopped
