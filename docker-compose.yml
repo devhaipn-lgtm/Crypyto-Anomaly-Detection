@@ -38,7 +38,7 @@ services:
 
   # 4. Grafana (Visualization)
   grafana:
-    image: grafana/grafana:11.4.0
+    image: grafana/grafana:latest
     platform: linux/amd64
     ports:
       - "3000:3000"
