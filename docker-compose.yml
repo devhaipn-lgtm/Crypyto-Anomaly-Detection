@@ -39,6 +39,7 @@ services:
   # 4. Grafana (Visualization)
   grafana:
     image: grafana/grafana:latest
+    platform: linux/amd64
     ports:
       - "3000:3000"
     environment:
